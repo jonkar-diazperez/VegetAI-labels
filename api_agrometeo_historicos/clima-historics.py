@@ -16,48 +16,52 @@ db_url = URL.create(
 engine = create_engine(db_url)
 
 # -------------------------------------------------
-# 2. INFORMACIÓN DE PARCELA (FIJA)
+# 2. MAPEO VARIABLES (CORREGIDO PARA ARCHIVE API)
 # -------------------------------------------------
-PARCELA_INFO = {
-    "lat": -33.1951,
-    "lon": -70.7292,
-    "parcela_id": 784112,
-    "nombre_parcela": "Parcela 20343",
-    "finca_id": 227752
-}
-
-# -------------------------------------------------
-# 3. MAPEO VARIABLES (USUARIO → DAILY OPEN-METEO)
-# -------------------------------------------------
+# Nota: La API de Archive usa nombres ligeramente distintos a la de Forecast.
 MAPEO_API_DAILY = {
     "temperatura": "temperature_2m_mean",
     "humedad_relativa": "relative_humidity_2m_mean",
-    "humedad_suelo": "soil_moisture_0_1cm_mean",
+    "humedad_suelo": "soil_moisture_0_to_7cm_mean",    # En Archive se usa 0_to_7cm
     "precipitacion": "precipitation_sum",
-    "viento_velocidad": "windspeed_10m_mean",
-    "viento_direccion": "winddirection_10m_dominant",
+    "viento_velocidad": "wind_speed_10m_max",         # Nombre correcto en Archive
+    "viento_direccion": "wind_direction_10m_dominant",
     "evapotranspiracion": "et0_fao_evapotranspiration"
 }
 
-# -------------------------------------------------
-# 4. FLASK
-# -------------------------------------------------
 app = Flask(__name__)
 
 # -------------------------------------------------
-# 5. ENDPOINT HISTÓRICO DAILY
+# 3. ENDPOINT INICIAL
+# -------------------------------------------------
+@app.route('/')
+def home():
+    return {"estado": "OK", "info": "Consulta historicos climaticos con JSON de la parcela"}
+
+# -------------------------------------------------
+# 4. EJEMPLO CONSULTA JSON
 # -------------------------------------------------
 
-# Formato de consulta (POST)
 """
 {
-  "inicio": "1951-01-01",
-  "fin": "1951-01-30",
-  "variables": [
-    "temperatura"
-  ]
+    "parcela_id": 784112,
+    "lat": -33.1951,
+    "lon": -70.7292,
+    "inicio": "2024-01-01",
+    "fin": "2024-01-15",
+    "variables": [
+        "temperatura",
+        "precipitacion",
+        "humedad_suelo",
+        "evapotranspiracion"
+    ]
 }
 """
+
+# -------------------------------------------------
+# 3. ENDPOINT HISTÓRICO DAILY
+# -------------------------------------------------
+
 @app.route('/cargar_historico', methods=['POST'])
 def cargar_historico():
     datos = request.get_json()
@@ -65,26 +69,31 @@ def cargar_historico():
     if not datos:
         return jsonify({"error": "No se recibió JSON"}), 400
 
+    parcela_id = datos.get("parcela_id")
+    lat = datos.get("lat")
+    lon = datos.get("lon")
     fecha_inicio = datos.get("inicio")
     fecha_fin = datos.get("fin")
     variables_solicitadas = datos.get("variables", [])
 
-    if not fecha_inicio or not fecha_fin or not variables_solicitadas:
-        return jsonify({"error": "Faltan parámetros"}), 400
+    campos_obligatorios = ["parcela_id", "lat", "lon", "inicio", "fin"]
+    faltantes = [f for f in campos_obligatorios if datos.get(f) is None]
+    
+    if faltantes or not variables_solicitadas:
+        return jsonify({"error": f"Faltan parámetros: {', '.join(faltantes) if faltantes else 'variables'}"}), 400
 
-    # Validar variables
     variables_validas = [v for v in variables_solicitadas if v in MAPEO_API_DAILY]
     if not variables_validas:
-        return jsonify({"error": "Variables no válidas"}), 400
+        return jsonify({"error": "Variables solicitadas no soportadas"}), 400
 
     try:
+        # 1. Llamada a la API de Open-Meteo
         api_vars = [MAPEO_API_DAILY[v] for v in variables_validas]
-
         api_url = "https://archive-api.open-meteo.com/v1/archive"
 
         params = {
-            "latitude": PARCELA_INFO["lat"],
-            "longitude": PARCELA_INFO["lon"],
+            "latitude": lat,
+            "longitude": lon,
             "start_date": fecha_inicio,
             "end_date": fecha_fin,
             "daily": ",".join(api_vars),
@@ -94,34 +103,26 @@ def cargar_historico():
         response = requests.get(api_url, params=params, timeout=30)
         data = response.json()
 
+        # Si la API devuelve un error (como el que viste antes)
         if "error" in data:
-            return jsonify({"error_api": data.get("reason")}), 400
+            return jsonify({
+                "error_api_open_meteo": data.get("reason"),
+                "detalle": "Revisa si las variables o las fechas son correctas para el archivo histórico."
+            }), 400
 
-        daily = data["daily"]
-        fechas = daily["time"]
+        daily_data = data["daily"]
+        fechas = daily_data["time"]
 
-        # SQL dinámico
+        # 2. Preparar SQL Dinámico
         columnas_sql = ", ".join(variables_validas)
         placeholders = ", ".join([f":{v}" for v in variables_validas])
 
         query = text(f"""
             INSERT INTO registros_clima (
-                fecha,
-                parcela_id,
-                nombre_parcela,
-                finca_id,
-                latitud,
-                longitud,
-                {columnas_sql}
+                fecha, parcela_id, latitud, longitud, {columnas_sql}
             )
             VALUES (
-                :fecha,
-                :parcela_id,
-                :nombre_parcela,
-                :finca_id,
-                :latitud,
-                :longitud,
-                {placeholders}
+                :fecha, :parcela_id, :latitud, :longitud, {placeholders}
             )
         """)
 
@@ -131,45 +132,36 @@ def cargar_historico():
         for i in range(len(fechas)):
             fila_db = {
                 "fecha": fechas[i],
-                "parcela_id": PARCELA_INFO["parcela_id"],
-                "nombre_parcela": PARCELA_INFO["nombre_parcela"],
-                "finca_id": PARCELA_INFO["finca_id"],
-                "latitud": PARCELA_INFO["lat"],
-                "longitud": PARCELA_INFO["lon"]
+                "parcela_id": parcela_id,
+                "latitud": lat,
+                "longitud": lon
             }
-
-            punto = {"fecha": fechas[i]}
+            punto_json = {"fecha": fechas[i]}
 
             for var in variables_validas:
-                valor = daily[MAPEO_API_DAILY[var]][i]
+                # Obtenemos el valor de la API usando el mapeo
+                valor = daily_data[MAPEO_API_DAILY[var]][i]
                 fila_db[var] = valor
-                punto[var] = valor
+                punto_json[var] = valor
 
             registros_db.append(fila_db)
-            historico_json.append(punto)
+            historico_json.append(punto_json)
 
-        # Inserción en BBDD
+        # 3. Inserción en Base de Datos
         with engine.begin() as conn:
             conn.execute(query, registros_db)
 
         return jsonify({
             "status": "Éxito",
-            "parcela": PARCELA_INFO["nombre_parcela"],
-            "periodo": {
-                "inicio": fecha_inicio,
-                "fin": fecha_fin
-            },
-            "variables": variables_validas,
+            "parcela_id": parcela_id,
+            "periodo": {"inicio": fecha_inicio, "fin": fecha_fin},
             "total_dias": len(historico_json),
             "historico": historico_json
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Error interno en el servidor", "detalle": str(e)}), 500
 
-
-# -------------------------------------------------
-# 6. EJECUCIÓN
-# -------------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001)
+    # Mantener debug=False si el proceso se queda bloqueado en Windows
+    app.run(host="0.0.0.0", port=5001, debug=False)

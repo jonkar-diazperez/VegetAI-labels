@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 import openmeteo_requests
 import requests_cache
 from retry_requests import retry
@@ -6,7 +7,7 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 
 # ----------------------------
-# CONFIGURACIÓN RENDER
+# CONFIGURACIÓN RENDER / DB
 # ----------------------------
 hosting = "dpg-d5nov1q4d50c73fu8ig0-a.oregon-postgres.render.com"
 puerto = "5432"
@@ -25,10 +26,8 @@ retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
 openmeteo = openmeteo_requests.Client(session=retry_session)
 url_api = "https://api.open-meteo.com/v1/forecast"
 
-app = Flask(__name__)
-
 # ----------------------------
-# TRADUCCIÓN VARIABLES
+# TRADUCCIONES VARIABLES
 # ----------------------------
 TRADUCCIONES = {
     "temperature_2m": "temperatura",
@@ -39,6 +38,12 @@ TRADUCCIONES = {
     "winddirection_10m": "viento_direccion",
     "evapotranspiration": "evapotranspiracion"
 }
+
+# ----------------------------
+# FLASK + CORS
+# ----------------------------
+app = Flask(__name__)
+CORS(app)  # Permitir frontend
 
 # ----------------------------
 # FUNCIONES AUXILIARES
@@ -61,7 +66,8 @@ def registrar_log(endpoint, estado, mensaje="OK"):
     except Exception as e:
         print(f"Error en monitorización: {e}")
 
-def guardar_en_db(nombre_columna, valor, parcela_id, nombre_parcela, finca_id, lat, lon):
+def guardar_en_db(nombre_columna, valor, parcela_info):
+    # Permitimos que nombre_parcela y finca_id sean opcionales
     query = text(f"""
         INSERT INTO registros_clima (
             fecha, parcela_id, nombre_parcela, finca_id, latitud, longitud, {nombre_columna}
@@ -71,91 +77,104 @@ def guardar_en_db(nombre_columna, valor, parcela_id, nombre_parcela, finca_id, l
     with engine.connect() as conn:
         conn.execute(query, {
             "fecha": datetime.now(),
-            "p_id": parcela_id,
-            "p_nom": nombre_parcela,
-            "f_id": finca_id,
-            "lat": lat,
-            "lon": lon,
+            "p_id": parcela_info["parcela_id"],
+            "p_nom": parcela_info.get("nombre_parcela"),  # opcional
+            "f_id": parcela_info.get("finca_id"),          # opcional
+            "lat": parcela_info["lat"],
+            "lon": parcela_info["lon"],
             "val": valor
         })
         conn.commit()
 
-def obtener_variable(variable_key):
-    datos = request.get_json()
+# ----------------------------
+# PROCESADOR CENTRAL DE VARIABLES
+# ----------------------------
+def procesar_variable(var_name):
+    datos = request.get_json(silent=True)
     if not datos:
-        return jsonify({"error": "No se recibió JSON"}), 400
+        return jsonify({"error": "Debe enviar un JSON con los datos de la parcela"}), 400
+
+    # Validar campos obligatorios mínimos
+    required = ["parcela_id", "lat", "lon"]
+    faltantes = [f for f in required if f not in datos]
+    if faltantes:
+        return jsonify({"error": f"Faltan campos: {', '.join(faltantes)}"}), 400
+
+    endpoint_path = request.path
 
     try:
-        parcela_id = datos["parcela_id"]
-        nombre_parcela = datos["nombre_parcela"]
-        finca_id = datos["finca_id"]
-        lat = float(datos["lat"])
-        lon = float(datos["lon"])
-    except KeyError as e:
-        return jsonify({"error": f"Falta parámetro: {e}"}), 400
-    except ValueError:
-        return jsonify({"error": "Lat o Lon no son válidos"}), 400
-
-    if variable_key not in TRADUCCIONES:
-        return jsonify({"error": f"Variable no válida: {variable_key}"}), 400
-
-    try:
-        params = {"latitude": lat, "longitude": lon, "current": [variable_key]}
+        # Consultar API Open-Meteo
+        params = {
+            "latitude": datos["lat"],
+            "longitude": datos["lon"],
+            "current": [var_name]
+        }
         responses = openmeteo.weather_api(url_api, params=params)
         valor = round(responses[0].Current().Variables(0).Value(), 2)
-        nombre_es = TRADUCCIONES[variable_key]
+        nombre_es = TRADUCCIONES.get(var_name, var_name)
 
-        guardar_en_db(nombre_es, valor, parcela_id, nombre_parcela, finca_id, lat, lon)
-        registrar_log(request.path, "EXITO")
+        # Guardar en la base de datos
+        guardar_en_db(nombre_es, valor, datos)
+        registrar_log(endpoint_path, "EXITO")
 
+        # Respuesta JSON
         return jsonify({
-            "parcela_id": parcela_id,
-            "nombre_parcela": nombre_parcela,
-            "finca_id": finca_id,
-            "lat": lat,
-            "lon": lon,
             "variable": nombre_es,
             "valor": valor,
-            "status": "Guardado y monitorizado"
+            "status": "Guardado y Monitorizado",
+            "parcela": {
+                "parcela_id": datos["parcela_id"],
+                "lat": datos["lat"],
+                "lon": datos["lon"]
+            }
         })
 
     except Exception as e:
-        registrar_log(request.path, "ERROR", str(e))
-        return jsonify({"error": str(e)}), 500
+        registrar_log(endpoint_path, "ERROR", str(e))
+        return jsonify({"error": "Error al consultar clima", "detalle": str(e)}), 500
 
 # ----------------------------
-# ENDPOINTS POR VARIABLE
+# FORMATO DE CONSULTA JSON
 # ----------------------------
-@app.route('/temperatura', methods=['POST'])
-def temperatura(): return obtener_variable("temperature_2m")
 
-@app.route('/humedad_relativa', methods=['POST'])
-def humedad_relativa(): return obtener_variable("relative_humidity_2m")
-
-@app.route('/humedad_suelo', methods=['POST'])
-def humedad_suelo(): return obtener_variable("soil_moisture_0_1cm")
-
-@app.route('/precipitacion', methods=['POST'])
-def precipitacion(): return obtener_variable("precipitation")
-
-@app.route('/viento_velocidad', methods=['POST'])
-def viento_velocidad(): return obtener_variable("windspeed_10m")
-
-@app.route('/viento_direccion', methods=['POST'])
-def viento_direccion(): return obtener_variable("winddirection_10m")
-
-@app.route('/evapotranspiracion', methods=['POST'])
-def evapotranspiracion(): return obtener_variable("evapotranspiration")
+"""
+{
+    "parcela_id": 784112,
+    "lat": -33.1951,
+    "lon": -70.7292
+}
+"""
 
 # ----------------------------
-# ENDPOINT HOME
+# ENDPOINTS
 # ----------------------------
 @app.route('/')
 def home():
-    return {"estado": "OK", "servicio": "Agrometeo Service", "version": "1.3.0"}
+    return {"estado": "OK", "info": "Envía POST a los endpoints climáticos con JSON de la parcela"}
+
+@app.route('/temperatura', methods=['POST'])
+def temperatura(): return procesar_variable("temperature_2m")
+
+@app.route('/humedad_relativa', methods=['POST'])
+def humedad_relativa(): return procesar_variable("relative_humidity_2m")
+
+@app.route('/humedad_suelo', methods=['POST'])
+def humedad_suelo(): return procesar_variable("soil_moisture_0_1cm")
+
+@app.route('/precipitacion', methods=['POST'])
+def precipitacion(): return procesar_variable("precipitation")
+
+@app.route('/viento_velocidad', methods=['POST'])
+def viento_velocidad(): return procesar_variable("windspeed_10m")
+
+@app.route('/viento_direccion', methods=['POST'])
+def viento_direccion(): return procesar_variable("winddirection_10m")
+
+@app.route('/evapotranspiracion', methods=['POST'])
+def evapotranspiracion(): return procesar_variable("evapotranspiration")
 
 # ----------------------------
-# EJECUTAR SERVICIO
+# RUN
 # ----------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=True)
