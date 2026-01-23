@@ -1,0 +1,10 @@
+groq
+python-dotenv
+langchain-community==0.0.20
+flask
+flask-cors
+langchain
+langchain-groq
+langchain-postgres
+psycopg[binary]
+gunicorn
