@@ -1,0 +1,9 @@
+# ficheros con variables de entorno #
+#####################################
+
+src_auravant/.env
+
+# Documentos                        #
+#####################################
+__pycache__/
+.docx
