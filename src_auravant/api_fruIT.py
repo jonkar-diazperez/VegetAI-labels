@@ -12,7 +12,7 @@ app.config["DEBUG"] = True
 def main():
     return "API de aplicación campos agrícolas"
 
-# 1. Llamada a GROQ para obtener respuesta a partir del prompt introducido por el usuario
+# 1. Llamada a API AURAVANT para agregar parcela
 @app.route("/agregar_parcela", methods = ['POST'])
 def agregar_parcela():
     """{'data': [
@@ -34,7 +34,7 @@ def agregar_parcela():
         }
         print(parcela_nueva)
         response_api, response_code = aur.auravant_parcela(parcela_nueva)
-        print("Resultado llamada API:",response_api, response_code)
+        print("Resultado API agregar_parcela:",response_api, response_code)
         if response_code > 200:
             return jsonify({"Error":"Error en llamada API."}), response_code
         else: 
@@ -45,5 +45,31 @@ def agregar_parcela():
     except Exception as e:
         return jsonify({"Error": f"Se ha producido un error ----- {e}"}), 500 
 
+# 2. Llamada a API AURAVANT para obtener datos parcela
+@app.route("/consultar_parcela", methods = ['GET'])
+def consultar_parcela():
+    """{'data': [
+        "888888"
+        ]}"""  
+    try:
+        parcela = request.get_json()
 
-app.run(host="0.0.0.0", port=5000)
+        if not parcela or 'data' not in parcela:
+            return jsonify({"Error":"No se han proporcionado datos"}), 400
+
+        campo_id = parcela.get("data", None) 
+        print("----------------------", campo_id)
+
+        response_api, response_code = aur.consultar_fincas(campo_id[0])
+        print("Resultado API consulta_parcela:",response_api, response_code)
+        if response_code > 200:
+            return jsonify({"Error":"Error en llamada API."}), response_code
+        else: 
+            return response_api, response_code
+        
+    except ValueError:
+        return jsonify({"Error":"No se han proporcionado datos válidos"}), 400   
+    except Exception as e:
+        return jsonify({"Error": f"Se ha producido un error ----- {e}"}), 500 
+
+app.run(host="0.0.0.0", port=5005)
