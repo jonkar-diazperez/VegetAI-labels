@@ -1,0 +1,12 @@
+names:
+- whd
+nc: 1
+roboflow:
+  license: MIT
+  project: gwhd2021
+  url: https://universe.roboflow.com/wei-guo/gwhd2021/dataset/1
+  version: 1
+  workspace: wei-guo
+test: ../test/images
+train: ../train/images
+val: ../valid/images
