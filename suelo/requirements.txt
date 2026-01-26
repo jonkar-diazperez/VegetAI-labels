@@ -1,0 +1,4 @@
+flask
+datetime
+earthengine-api
+python-dotenv
