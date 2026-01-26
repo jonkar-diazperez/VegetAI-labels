@@ -1,0 +1,24 @@
+{
+    "manzana": [
+        {"pest": "pulgon", "Tbase": 5, "GDD_max": 60, "precip_threshold": 3},
+        {"pest": "moteado", "Tbase": 7, "GDD_max": 50, "precip_threshold": 10},
+        {"pest": "carpocapsa", "Tbase": 10, "GDD_max": 40, "precip_threshold": 2}
+    ],
+    "uva": [
+        {"pest": "mosca de la fruta", "Tbase": 10, "GDD_max": 50, "precip_threshold": 5},
+        {"pest": "botrytis", "Tbase": 12, "GDD_max": 40, "precip_threshold": 15},
+        {"pest": "oidio", "Tbase": 10, "GDD_max": 45, "precip_threshold": 8}
+    ],
+    "kiwi": [
+        {"pest": "araña roja", "Tbase": 7, "GDD_max": 55, "precip_threshold": 4},
+        {"pest": "botrytis", "Tbase": 10, "GDD_max": 40, "precip_threshold": 12}
+    ],
+    "naranja": [
+        {"pest": "pulgon", "Tbase": 12, "GDD_max": 35, "precip_threshold": 3},
+        {"pest": "cochinilla", "Tbase": 13, "GDD_max": 30, "precip_threshold": 2}
+    ],
+    "limon": [
+        {"pest": "pulgon", "Tbase": 12, "GDD_max": 30, "precip_threshold": 2},
+        {"pest": "minador", "Tbase": 15, "GDD_max": 25, "precip_threshold": 1}
+    ]
+}
