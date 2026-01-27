@@ -13,7 +13,7 @@ PASSWORD = os.getenv("AURAVANT_PASSWORD")
 ESPACIO = os.getenv("AURAVANT_ESPACIO")
 SUBDOMAIN = os.getenv("AURAVANT_SUBDOMAIN")
 EXTENSION_ID = os.getenv("AURAVANT_CLIENT_ID")
-SECRET = os.getenv("SECRET")
+SECRET = os.getenv("AURAVANT_SECRET")
 
 def get_token():
     global TOKEN_CACHE
