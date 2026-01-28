@@ -1,0 +1,24 @@
+{
+    "resumen": {
+        "total": 2,
+        "conteo": {
+            "verdes": 0,
+            "intermedios": 0,
+            "doradas": 2
+        },
+        "indice_madurez": 100.0,
+        "estado_agronomico": "LISTO PARA COSECHAR (SECADO FINAL)"
+    },
+    "detecciones": [
+        {
+            "id": 0,
+            "estado": "dorada",
+            "hue_valor": 15.29
+        },
+        {
+            "id": 1,
+            "estado": "dorada",
+            "hue_valor": 17.79
+        }
+    ]
+}

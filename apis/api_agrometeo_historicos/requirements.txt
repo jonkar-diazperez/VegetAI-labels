@@ -1,0 +1,4 @@
+Flask
+requests
+sqlalchemy
+psycopg2-binary
