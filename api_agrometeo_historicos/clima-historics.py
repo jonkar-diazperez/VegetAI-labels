@@ -32,33 +32,6 @@ MAPEO_API_DAILY = {
 app = Flask(__name__)
 
 # -------------------------------------------------
-# 3. ENDPOINT INICIAL
-# -------------------------------------------------
-@app.route('/')
-def home():
-    return {"estado": "OK", "info": "Consulta historicos climaticos con JSON de la parcela"}
-
-# -------------------------------------------------
-# 4. EJEMPLO CONSULTA JSON
-# -------------------------------------------------
-
-"""
-{
-    "parcela_id": 784112,
-    "lat": -33.1951,
-    "lon": -70.7292,
-    "inicio": "2024-01-01",
-    "fin": "2024-01-15",
-    "variables": [
-        "temperatura",
-        "precipitacion",
-        "humedad_suelo",
-        "evapotranspiracion"
-    ]
-}
-"""
-
-# -------------------------------------------------
 # 3. ENDPOINT HISTÓRICO DAILY
 # -------------------------------------------------
 
