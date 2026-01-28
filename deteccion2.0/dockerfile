@@ -1,0 +1,31 @@
+# --- ETAPA 1: Construcción ---
+FROM python:3.10-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev
+
+COPY requirements.txt .
+# Instalamos en una carpeta local para luego copiarla
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# --- ETAPA 2: Imagen Final ---
+FROM python:3.10-slim
+
+
+WORKDIR /app
+
+# Solo dependencias de ejecución esenciales
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+
+# Copiamos solo las librerías instaladas desde la etapa anterior
+COPY --from=builder /root/.local /home/awsuser/.local
+COPY . .
+
+EXPOSE 5002
+
+CMD ["python", "deteccion.py"]

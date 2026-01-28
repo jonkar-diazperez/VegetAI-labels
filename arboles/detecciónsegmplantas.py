@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-import json
+import requests
 from flask import Flask, request, jsonify
 from roboflow import Roboflow
 from dotenv import load_dotenv
@@ -10,18 +10,26 @@ from dotenv import load_dotenv
 load_dotenv()
 app = Flask(__name__)
 
-API_KEY = os.getenv("ROBOFLOW_API_KEY")
-if not API_KEY:
+# =========================
+# 🔹 CONFIG PLANTNET
+# =========================
+
+PLANTNET_KEY = os.getenv("PLANTNET_KEY")
+PN_URL = f"https://my-api.plantnet.org/v2/identify/all?api-key={PLANTNET_KEY}&lang=es"
+
+# =========================
+# 🔹 CONFIG ROBOFLOW
+# =========================
+
+ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
+if not ROBOFLOW_API_KEY:
     raise ValueError("❌ Falta ROBOFLOW_API_KEY en .env")
 
-# --- INICIALIZAR ROBOFLOW UNA SOLA VEZ ---
 print("🚀 Cargando modelo Roboflow en memoria...")
-rf = Roboflow(api_key=API_KEY)
+rf = Roboflow(api_key=ROBOFLOW_API_KEY)
 project = rf.workspace("agridrone-pblcc").project("agridetect")
 model = project.version(3).model
 print("✅ Modelo listo.")
-
-# --- DEFINICIÓN DE CLASES ---
 
 LABELS = {
     "sky":   ["sky", "cielo", "cloud"],
@@ -29,20 +37,17 @@ LABELS = {
     "soil":  ["field-soil", "unused-land", "soil", "dirt", "ground"]
 }
 
-# Clases que nunca deben usarse para cielo/suelo/cultivo
 CLASES_PROHIBIDAS = [
     "person", "human", "man", "woman", "people",
     "car", "vehicle", "truck", "bus", "bike", "motorcycle",
     "animal", "dog", "cow", "sheep"
 ]
 
-# --- FUNCIÓN PRINCIPAL DE SELECCIÓN DE PUNTO ---
+# =========================
+# 🔹 FUNCIÓN AUXILIAR
+# =========================
 
 def obtener_mejor_punto(detections, target_labels, zona):
-    """
-    zona = dict con:
-        x_start, x_end, y_start, y_end
-    """
 
     best_det = None
     max_conf = 0
@@ -53,24 +58,19 @@ def obtener_mejor_punto(detections, target_labels, zona):
         x = det.get("x", 0)
         y = det.get("y", 0)
 
-        # 🚫 Ignorar clases prohibidas
         if clase in CLASES_PROHIBIDAS:
             continue
 
-        # Solo clases objetivo
         if clase not in target_labels:
             continue
 
-        # 📐 Regla geométrica: debe caer dentro de su zona
         if not (zona["x_start"] <= x <= zona["x_end"] and zona["y_start"] <= y <= zona["y_end"]):
             continue
 
-        # Elegir la de mayor confianza
         if conf > max_conf:
             max_conf = conf
             best_det = det
 
-    # --- Si encontramos detección válida por IA ---
     if best_det:
         return {
             "x": int(best_det["x"]),
@@ -80,7 +80,6 @@ def obtener_mejor_punto(detections, target_labels, zona):
             "clase": best_det["class"]
         }
 
-    # --- Fallback geométrico (centro de la zona) ---
     x_fallback = int((zona["x_start"] + zona["x_end"]) / 2)
     y_fallback = int((zona["y_start"] + zona["y_end"]) / 2)
 
@@ -92,19 +91,59 @@ def obtener_mejor_punto(detections, target_labels, zona):
         "clase": "heuristica"
     }
 
-# --- ENDPOINT PRINCIPAL ---
+# =========================
+# 🔹 ENDPOINT PLANTNET
+# =========================
 
-@app.route('/analizar', methods=['POST'])
-def analizar_imagen():
+@app.route('/identificar', methods=['POST'])
+def identificar_planta():
 
-    # 1. Validar archivo
     if 'image' not in request.files:
         return jsonify({"error": "No se envió ninguna imagen"}), 400
 
     file = request.files['image']
 
     try:
-        # 2. Leer imagen (funciona para .jpg, .png, .insp si es jpg disfrazado)
+        files = [('images', (file.filename, file.read()))]
+        data = {'organs': ['auto']}
+
+        res_pn = requests.post(PN_URL, files=files, data=data)
+
+        if res_pn.status_code == 200:
+            json_data = res_pn.json()
+            best_match = json_data['results'][0]
+            species = best_match['species']
+
+            scientific_name = species.get('scientificNameWithoutAuthor')
+            common_names = species.get('commonNames', [])
+
+            return jsonify({
+                "status": "success",
+                "nombre_cientifico": scientific_name,
+                "nombre_comun": common_names[0] if common_names else "No disponible",
+                "otros_nombres": common_names[1:4],
+                "precision": f"{round(best_match.get('score', 0) * 100, 2)}%"
+            })
+
+        else:
+            return jsonify({"error": "Error de Pl@ntNet", "codigo": res_pn.status_code}), res_pn.status_code
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# =========================
+# 🔹 ENDPOINT ROBOFLOW
+# =========================
+
+@app.route('/analizar', methods=['POST'])
+def analizar_imagen():
+
+    if 'image' not in request.files:
+        return jsonify({"error": "No se envió ninguna imagen"}), 400
+
+    file = request.files['image']
+
+    try:
         file_bytes = np.frombuffer(file.read(), np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
@@ -113,7 +152,6 @@ def analizar_imagen():
 
         height, width, _ = img.shape
 
-        # 3. Inferencia
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         prediction = model.predict(img_rgb, confidence=5).json()
 
@@ -123,8 +161,6 @@ def analizar_imagen():
             detections = prediction
         else:
             detections = []
-
-        # 4. Definir zonas geométricas dinámicas
 
         rect_sky = {
             "x_start": int(width * 0.15),
@@ -147,7 +183,6 @@ def analizar_imagen():
             "y_end":   height
         }
 
-        # 5. Extra: detectar personas aparte
         personas = []
         for det in detections:
             if det.get("class") in ["person", "human"]:
@@ -157,12 +192,10 @@ def analizar_imagen():
                     "confianza": float(det["confidence"])
                 })
 
-        # 6. Calcular puntos finales
         punto_cielo = obtener_mejor_punto(detections, LABELS["sky"], rect_sky)
         punto_cultivo = obtener_mejor_punto(detections, LABELS["crop"], rect_crop)
         punto_suelo = obtener_mejor_punto(detections, LABELS["soil"], rect_soil)
 
-        # 7. Construir respuesta
         result = {
             "status": "success",
             "dimensiones": {
@@ -170,7 +203,7 @@ def analizar_imagen():
                 "height": height
             },
             "personas_detectadas": len(personas),
-            "personas": personas,  # puedes quitar esto si no lo quieres
+            "personas": personas,
             "puntos": {
                 "cielo": punto_cielo,
                 "cultivo": punto_cultivo,
@@ -183,7 +216,9 @@ def analizar_imagen():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- ARRANQUE DEL SERVIDOR ---
+# =========================
+# 🔹 ARRANQUE
+# =========================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5002, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
