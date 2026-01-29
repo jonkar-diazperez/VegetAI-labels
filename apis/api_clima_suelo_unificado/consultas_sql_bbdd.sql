@@ -1,14 +1,18 @@
-SELECT * FROM registros_clima;
-
 SELECT * FROM clima_actual_parcela;
 
 SELECT * FROM clima_hist_parcela;
 
+SELECT * FROM suelo_parcela;
+
+SELECT * FROM agro_chat_history;
+
+SELECT * FROM logs_procesos;
+
+delete FROM clima_actual_parcela;
+
 DELETE FROM clima_hist_parcela;
 
 ALTER TABLE suelo_parcela DROP CONSTRAINT suelo_parcela_parcela_id_key;
-
-SELECT * FROM suelo_parcela;
 
 DELETE FROM suelo_parcela;
 
@@ -16,11 +20,7 @@ DELETE FROM logs_procesos;
 
 DELETE FROM registros_clima;
 
-SELECT * FROM agro_chat_history;
-
 DELETE FROM agro_chat_history;
-
-SELECT * FROM logs_procesos;
 
 SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
