@@ -1,5 +1,0 @@
-flask
-roboflow
-python-dotenv
-numpy
-opencv-python-headless
