@@ -1,0 +1,8 @@
+Flask
+gunicorn
+flask-cors
+psycopg[binary]
+langchain-postgres
+langchain-groq
+langchain-core
+python-dotenv

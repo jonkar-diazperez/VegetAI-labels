@@ -1,0 +1,8 @@
+flask
+python-dotenv
+sqlalchemy
+psycopg2-binary
+langchain
+langchain-groq
+langchain-core
+flask-cors

@@ -1,0 +1,9 @@
+flask
+flask-cors
+openmeteo-requests
+requests-cache
+retry_requests
+sqlalchemy
+psycopg2-binary
+pandas
+numpy

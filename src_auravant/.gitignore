@@ -1,0 +1,9 @@
+# ficheros con variables de entorno #
+#####################################
+
+.env
+
+# Documentos                        #
+#####################################
+__pycache__/
+.docx
